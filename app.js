@@ -1,5 +1,5 @@
 const GAS_BASE_URL = window.APP_CONFIG?.GAS_BASE_URL || '';
-const state = { expenses: [], masters: { payers: [], types: [] }, payerFilter: 'all', search: '' };
+const state = { expenses: [], masters: { payers: [], types: [] }, payerFilter: 'all', monthFilter: 'all', search: '' };
 
 const $ = (id) => document.getElementById(id);
 const yen = (n) => Number(n || 0).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 });
@@ -24,7 +24,7 @@ async function loadAll(){
     const json = await api('getInitialData');
     state.expenses = json.expenses || [];
     state.masters = json.masters || { payers: [], types: [] };
-    renderMasterInputs(); renderPayerFilter(); renderList();
+    renderMasterInputs(); renderPayerFilter(); renderMonthFilter(); renderList();
   }catch(e){ toast(e.message); $('expense-list').innerHTML = `<p class="empty">${escapeHtml(e.message)}</p>`; }
 }
 
@@ -37,10 +37,26 @@ function renderPayerFilter(){
   $('payer-filter').innerHTML = buttons;
   document.querySelectorAll('[data-payer]').forEach(btn => btn.addEventListener('click', () => { state.payerFilter = btn.dataset.payer; renderPayerFilter(); renderList(); }));
 }
+
+function renderMonthFilter(){
+  const months = [...new Set(
+    state.expenses
+      .map(x => String(x.date || '').slice(0, 7))
+      .filter(v => /^\d{4}-\d{2}$/.test(v))
+  )].sort().reverse();
+
+  $('month-filter').innerHTML =
+    '<option value="all">すべての月</option>' +
+    months.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+
+  $('month-filter').value = state.monthFilter;
+}
+
 function filteredExpenses(){
   const q = state.search.trim().toLowerCase();
   return state.expenses.filter(x => {
     if(state.payerFilter !== 'all' && x.payer !== state.payerFilter) return false;
+    if(state.monthFilter !== 'all' && !String(x.date || '').startsWith(state.monthFilter)) return false;
     if(!q) return true;
     return [x.title,x.payer,x.type,x.amount].some(v => String(v||'').toLowerCase().includes(q));
   });
@@ -116,5 +132,9 @@ $('delete-btn').addEventListener('click', deleteExpense);
 $('amount-input').addEventListener('input', e => e.target.value = normalizeAmount(e.target.value));
 $('receipt-input').addEventListener('change', e => uploadReceipt(e.target.files?.[0]));
 $('search-input').addEventListener('input', e => { state.search = e.target.value; renderList(); });
+$('month-filter').addEventListener('change', e => {
+  state.monthFilter = e.target.value;
+  renderList();
+});
 document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', closeModal));
 loadAll();
