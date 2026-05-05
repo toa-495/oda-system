@@ -120,7 +120,12 @@ async function uploadReceipt(file){
   $('receipt-status').textContent='アップロード中...';
   try{
     const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(String(r.result).split(',')[1]); r.onerror=reject; r.readAsDataURL(file); });
-    const json = await api('uploadReceipt', { fileName:file.name, mimeType:file.type || 'application/octet-stream', base64 });
+    const json = await api('uploadReceipt', {
+  fileName: file.name,
+  mimeType: file.type || 'application/octet-stream',
+  base64,
+  date: $('date-input').value
+});
     $('receipt-url').value=json.url; $('receipt-id').value=json.fileId; $('receipt-status').textContent='アップロード済み'; $('receipt-link').href=json.url; $('receipt-link').classList.remove('hidden'); toast('レシートを保存しました');
   }catch(e){ $('receipt-status').textContent='アップロード失敗'; toast(e.message); }
 }
