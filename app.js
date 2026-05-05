@@ -85,6 +85,7 @@ $('receipt-preview-wrap').classList.add('hidden');
 $('receipt-preview').src = '';
 $('delete-btn').classList.add('hidden');
   $('modal-mode').textContent='New'; $('modal-title').textContent='経費を追加';
+  $('delete-receipt-btn').classList.add('hidden');
 }
 function openModal(){ $('modal').classList.remove('hidden'); }
 function closeModal(){ $('modal').classList.add('hidden'); }
@@ -99,9 +100,10 @@ function openEdit(no){
   $('receipt-link').href=x.receiptUrl;
   $('receipt-link').classList.remove('hidden');
 
-  if (/\.(jpg|jpeg|png|gif|webp)$/i.test(x.receiptUrl)) {
-    $('receipt-preview').src = x.receiptUrl;
-    $('receipt-preview-wrap').classList.remove('hidden');
+  $('delete-receipt-btn').classList.remove('hidden');
+
+  if(x.receiptId){
+    loadReceiptPreview(x.receiptId);
   }
 }
   $('delete-btn').classList.remove('hidden'); openModal();
@@ -111,7 +113,11 @@ function getPayload(){
   $('amount-input').value = amount;
   const payload = { no:$('expense-no').value, title, amount, payer:$('payer-input').value, type:$('type-input').value, date:$('date-input').value, settled:$('settled-input').checked, receiptUrl:$('receipt-url').value, receiptId:$('receipt-id').value };
   if(!payload.payer) throw new Error('支払者は必須です。');
-  if(!(payload.title && payload.amount) && !payload.receiptUrl) throw new Error('タイトル＋金額、またはレシートのどちらかを入力してください。');
+  const hasReceipt = payload.receiptUrl || window.receiptUploading === true;
+
+if(!(payload.title && payload.amount) && !hasReceipt) {
+  throw new Error('タイトル＋金額、またはレシートのどちらかを入力してください。');
+}
   return payload;
 }
 
@@ -172,6 +178,9 @@ async function deleteExpense(){
 }
 async function uploadReceipt(file){
   if(!file) return;
+
+  window.receiptUploading = true;
+
   $('receipt-status').textContent='アップロード中...';
   try{
     const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(String(r.result).split(',')[1]); r.onerror=reject; r.readAsDataURL(file); });
@@ -179,7 +188,9 @@ async function uploadReceipt(file){
   fileName: file.name,
   mimeType: file.type || 'application/octet-stream',
   base64,
-  date: $('date-input').value
+  date: $('date-input').value,
+  title: $('title-input').value,
+  payer: $('payer-input').value
 });
     $('receipt-url').value=json.url;
 $('receipt-id').value=json.fileId;
@@ -193,7 +204,12 @@ if (file.type && file.type.startsWith('image/')) {
 }
 
 toast('レシートを保存しました');
-  }catch(e){ $('receipt-status').textContent='アップロード失敗'; toast(e.message); }
+    }catch(e){
+    $('receipt-status').textContent='アップロード失敗';
+    toast(e.message);
+  } finally {
+    window.receiptUploading = false;
+  }
 }
 
 $('add-btn').addEventListener('click', openNew);
@@ -209,3 +225,64 @@ $('month-filter').addEventListener('change', e => {
 });
 document.querySelectorAll('[data-close]').forEach(el => el.addEventListener('click', closeModal));
 loadAll();
+
+async function deleteReceiptOnly(){
+  const receiptId = $('receipt-id').value;
+  if(!receiptId) return;
+
+  if(!confirm('レシート画像だけ削除しますか？')) return;
+
+  const beforeExpenses = state.expenses.map(x => ({ ...x }));
+  const no = $('expense-no').value;
+
+  $('receipt-url').value = '';
+  $('receipt-id').value = '';
+  $('receipt-status').textContent = '未アップロード';
+  $('receipt-link').classList.add('hidden');
+  $('receipt-preview-wrap').classList.add('hidden');
+  $('receipt-preview').src = '';
+  $('delete-receipt-btn').classList.add('hidden');
+
+  if(no){
+    state.expenses = state.expenses.map(x =>
+      String(x.no) === String(no)
+        ? { ...x, receiptUrl: '', receiptId: '' }
+        : x
+    );
+    renderList();
+  }
+
+  try{
+    await api('deleteReceipt', { no, receiptId });
+    toast('レシートを削除しました');
+  }catch(e){
+    state.expenses = beforeExpenses;
+    renderList();
+    toast('レシート削除に失敗しました。' + e.message);
+  }
+}
+
+$('delete-receipt-btn').addEventListener('click', deleteReceiptOnly);
+
+async function loadReceiptPreview(receiptId){
+  try{
+    const json = await api('getReceiptImage', { receiptId });
+    if(json.dataUrl){
+      $('receipt-preview').src = json.dataUrl;
+      $('receipt-preview-wrap').classList.remove('hidden');
+    }
+  }catch(e){
+    console.warn(e.message);
+  }
+}
+
+$('receipt-preview').addEventListener('click', () => {
+  if(!$('receipt-preview').src) return;
+  $('image-viewer-img').src = $('receipt-preview').src;
+  $('image-viewer').classList.remove('hidden');
+});
+
+$('image-viewer-close').addEventListener('click', () => {
+  $('image-viewer').classList.add('hidden');
+  $('image-viewer-img').src = '';
+});
