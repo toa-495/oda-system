@@ -117,11 +117,53 @@ function getPayload(){
 
 async function saveExpense(e){
   e.preventDefault();
+
+  const beforeExpenses = state.expenses.map(x => ({ ...x }));
+
   try{
-    $('save-btn').disabled=true; const payload = getPayload();
-    const json = await api(payload.no ? 'updateExpense' : 'addExpense', { expense: payload });
-    state.expenses = json.expenses || state.expenses; renderList(); closeModal(); toast('保存しました');
-  }catch(err){ toast(err.message); } finally { $('save-btn').disabled=false; }
+    $('save-btn').disabled = true;
+
+    const payload = getPayload();
+    const isUpdate = !!payload.no;
+
+    if (isUpdate) {
+      // 編集：先にUIへ即反映
+      state.expenses = state.expenses.map(x =>
+        String(x.no) === String(payload.no)
+          ? { ...x, ...payload }
+          : x
+      );
+    } else {
+      // 新規追加：先にUIへ即反映
+      const tempNo = 'temp_' + Date.now();
+
+      state.expenses.unshift({
+        ...payload,
+        no: tempNo
+      });
+    }
+
+    renderMonthFilter();
+    renderList();
+    closeModal();
+
+    // 裏でスプシへ送信
+    await api(isUpdate ? 'updateExpense' : 'addExpense', { expense: payload });
+
+    // 成功時は再取得しない
+    toast('保存しました');
+
+  } catch(err) {
+    // 失敗時だけ元に戻す
+    state.expenses = beforeExpenses;
+    renderMonthFilter();
+    renderList();
+
+    toast('保存に失敗しました。元に戻しました。' + err.message);
+
+  } finally {
+    $('save-btn').disabled = false;
+  }
 }
 async function deleteExpense(){
   const no = $('expense-no').value; if(!no) return;
