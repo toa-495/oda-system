@@ -1,5 +1,7 @@
 const GAS_BASE_URL = window.APP_CONFIG?.GAS_BASE_URL || '';
 const state = { expenses: [], masters: { payers: [], types: [] }, payerFilter: 'all', monthFilter: 'all', search: '' };
+window.receiptUploading = false;
+window.pendingReceiptPromise = null;
 
 const $ = (id) => document.getElementById(id);
 const yen = (n) => Number(n || 0).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 });
@@ -111,7 +113,18 @@ function openEdit(no){
 function getPayload(){
   const title = $('title-input').value.trim(); const amount = normalizeAmount($('amount-input').value);
   $('amount-input').value = amount;
-  const payload = { no:$('expense-no').value, title, amount, payer:$('payer-input').value, type:$('type-input').value, date:$('date-input').value, settled:$('settled-input').checked, receiptUrl:$('receipt-url').value, receiptId:$('receipt-id').value };
+  const payload = {
+  no: $('expense-no').value,
+  title,
+  amount,
+  payer: $('payer-input').value,
+  type: $('type-input').value,
+  date: $('date-input').value,
+  settled: $('settled-input').checked,
+  receiptUrl: $('receipt-url').value,
+  receiptId: $('receipt-id').value,
+  receiptUploading: window.receiptUploading === true
+};
   if(!payload.payer) throw new Error('支払者は必須です。');
   const hasReceipt = payload.receiptUrl || window.receiptUploading === true;
 
@@ -131,18 +144,15 @@ async function saveExpense(e){
 
     const payload = getPayload();
     const isUpdate = !!payload.no;
+    const tempNo = isUpdate ? payload.no : 'temp_' + Date.now();
 
     if (isUpdate) {
-      // 編集：先にUIへ即反映
       state.expenses = state.expenses.map(x =>
         String(x.no) === String(payload.no)
           ? { ...x, ...payload }
           : x
       );
     } else {
-      // 新規追加：先にUIへ即反映
-      const tempNo = 'temp_' + Date.now();
-
       state.expenses.unshift({
         ...payload,
         no: tempNo
@@ -153,18 +163,54 @@ async function saveExpense(e){
     renderList();
     closeModal();
 
-    // 裏でスプシへ送信
-    await api(isUpdate ? 'updateExpense' : 'addExpense', { expense: payload });
+    const json = await api(isUpdate ? 'updateExpense' : 'addExpense', { expense: payload });
 
-    // 成功時は再取得しない
+    const savedNo = isUpdate
+      ? payload.no
+      : String(json.expense?.no || '');
+
+    if (!isUpdate && savedNo) {
+      state.expenses = state.expenses.map(x =>
+        String(x.no) === String(tempNo)
+          ? { ...x, no: savedNo }
+          : x
+      );
+      renderList();
+    }
+
+    if (window.pendingReceiptPromise && !payload.receiptUrl) {
+      try {
+        const receipt = await window.pendingReceiptPromise;
+
+        if (receipt && savedNo) {
+          const updatedPayload = {
+            ...payload,
+            no: savedNo,
+            receiptUrl: receipt.receiptUrl,
+            receiptId: receipt.receiptId,
+            receiptUploading: false
+          };
+
+          state.expenses = state.expenses.map(x =>
+            String(x.no) === String(savedNo)
+              ? { ...x, receiptUrl: receipt.receiptUrl, receiptId: receipt.receiptId }
+              : x
+          );
+          renderList();
+
+          await api('updateExpense', { expense: updatedPayload });
+        }
+      } catch(uploadErr) {
+        toast('項目は保存しましたが、レシートアップロードに失敗しました。');
+      }
+    }
+
     toast('保存しました');
 
   } catch(err) {
-    // 失敗時だけ元に戻す
     state.expenses = beforeExpenses;
     renderMonthFilter();
     renderList();
-
     toast('保存に失敗しました。元に戻しました。' + err.message);
 
   } finally {
@@ -181,32 +227,52 @@ async function uploadReceipt(file){
 
   window.receiptUploading = true;
 
-  $('receipt-status').textContent='アップロード中...';
-  try{
-    const base64 = await new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(String(r.result).split(',')[1]); r.onerror=reject; r.readAsDataURL(file); });
+  const uploadTask = (async () => {
+    $('receipt-status').textContent = 'アップロード中...';
+
+    const base64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1]);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+
     const json = await api('uploadReceipt', {
-  fileName: file.name,
-  mimeType: file.type || 'application/octet-stream',
-  base64,
-  date: $('date-input').value,
-  title: $('title-input').value,
-  payer: $('payer-input').value
-});
-    $('receipt-url').value=json.url;
-$('receipt-id').value=json.fileId;
-$('receipt-status').textContent='アップロード済み';
-$('receipt-link').href=json.url;
-$('receipt-link').classList.remove('hidden');
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      base64,
+      date: $('date-input').value,
+      title: $('title-input').value,
+      payer: $('payer-input').value
+    });
 
-if (file.type && file.type.startsWith('image/')) {
-  $('receipt-preview').src = URL.createObjectURL(file);
-  $('receipt-preview-wrap').classList.remove('hidden');
-}
+    $('receipt-url').value = json.url;
+    $('receipt-id').value = json.fileId;
+    $('receipt-status').textContent = 'アップロード済み';
+    $('receipt-link').href = json.url;
+    $('receipt-link').classList.remove('hidden');
 
-toast('レシートを保存しました');
-    }catch(e){
-    $('receipt-status').textContent='アップロード失敗';
-    toast(e.message);
+    if (file.type && file.type.startsWith('image/')) {
+      $('receipt-preview').src = URL.createObjectURL(file);
+      $('receipt-preview-wrap').classList.remove('hidden');
+    }
+
+    toast('レシートを保存しました');
+
+    return {
+      receiptUrl: json.url,
+      receiptId: json.fileId
+    };
+  })();
+
+  window.pendingReceiptPromise = uploadTask;
+
+  try {
+    return await uploadTask;
+  } catch(e) {
+    $('receipt-status').textContent = 'アップロード失敗';
+    toast('レシートアップロードに失敗しました。' + e.message);
+    throw e;
   } finally {
     window.receiptUploading = false;
   }
