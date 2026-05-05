@@ -20,3 +20,36 @@
   max-height: 420px;
   object-fit: contain;
 }
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(20, 12, 6, .88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.image-viewer img {
+  max-width: 100%;
+  max-height: 90dvh;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.image-viewer-close {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 50%;
+  background: white;
+  color: #35251a;
+  font-size: 22px;
+  font-weight: 900;
+}
