@@ -79,7 +79,11 @@ function renderList(){
 
 function resetForm(){
   $('expense-form').reset(); $('expense-no').value=''; $('receipt-url').value=''; $('receipt-id').value=''; $('date-input').value=today();
-  $('receipt-status').textContent='未アップロード'; $('receipt-link').classList.add('hidden'); $('delete-btn').classList.add('hidden');
+  $('receipt-status').textContent='未アップロード';
+$('receipt-link').classList.add('hidden');
+$('receipt-preview-wrap').classList.add('hidden');
+$('receipt-preview').src = '';
+$('delete-btn').classList.add('hidden');
   $('modal-mode').textContent='New'; $('modal-title').textContent='経費を追加';
 }
 function openModal(){ $('modal').classList.remove('hidden'); }
@@ -90,7 +94,16 @@ function openEdit(no){
   resetForm(); $('modal-mode').textContent=`No.${x.no}`; $('modal-title').textContent='経費を編集'; $('expense-no').value=x.no;
   $('title-input').value=x.title||''; $('amount-input').value=x.amount||''; $('payer-input').value=x.payer||''; $('type-input').value=x.type||''; $('date-input').value=x.date||''; $('settled-input').checked=!!x.settled;
   $('receipt-url').value=x.receiptUrl||''; $('receipt-id').value=x.receiptId||'';
-  if(x.receiptUrl){ $('receipt-status').textContent='アップロード済み'; $('receipt-link').href=x.receiptUrl; $('receipt-link').classList.remove('hidden'); }
+  if(x.receiptUrl){
+  $('receipt-status').textContent='アップロード済み';
+  $('receipt-link').href=x.receiptUrl;
+  $('receipt-link').classList.remove('hidden');
+
+  if (/\.(jpg|jpeg|png|gif|webp)$/i.test(x.receiptUrl)) {
+    $('receipt-preview').src = x.receiptUrl;
+    $('receipt-preview-wrap').classList.remove('hidden');
+  }
+}
   $('delete-btn').classList.remove('hidden'); openModal();
 }
 function getPayload(){
@@ -126,7 +139,18 @@ async function uploadReceipt(file){
   base64,
   date: $('date-input').value
 });
-    $('receipt-url').value=json.url; $('receipt-id').value=json.fileId; $('receipt-status').textContent='アップロード済み'; $('receipt-link').href=json.url; $('receipt-link').classList.remove('hidden'); toast('レシートを保存しました');
+    $('receipt-url').value=json.url;
+$('receipt-id').value=json.fileId;
+$('receipt-status').textContent='アップロード済み';
+$('receipt-link').href=json.url;
+$('receipt-link').classList.remove('hidden');
+
+if (file.type && file.type.startsWith('image/')) {
+  $('receipt-preview').src = URL.createObjectURL(file);
+  $('receipt-preview-wrap').classList.remove('hidden');
+}
+
+toast('レシートを保存しました');
   }catch(e){ $('receipt-status').textContent='アップロード失敗'; toast(e.message); }
 }
 
